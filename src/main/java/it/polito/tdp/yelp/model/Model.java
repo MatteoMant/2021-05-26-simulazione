@@ -1,11 +1,10 @@
 package it.polito.tdp.yelp.model;
 
+import java.time.Year;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.jgrapht.Graph;
 import org.jgrapht.Graphs;
@@ -16,136 +15,139 @@ import it.polito.tdp.yelp.db.YelpDao;
 
 public class Model {
 	
-	YelpDao dao;
-	private Graph<Business, DefaultWeightedEdge> grafo;
-	private Map<Business, Double> mediaLocale;
+	private Graph<Business, DefaultWeightedEdge> grafo ;
+	private List<Business> vertici ;
+	private Map<String, Business> verticiIdMap ;
+	
+	// variabili per la ricorsione
+	private List<Business> percorsoBest ;
 
-	// lista che mi serve per il calcolo del percorso migliore
-	private List<Business> percorsoBest;
 	
-	public Model() {
-		dao = new YelpDao();
-		mediaLocale = new HashMap<>();
+	public List<String> getAllCities() {
+		YelpDao dao = new YelpDao() ;
+		return dao.getAllCities() ;
 	}
 	
-	public void creaGrafo(String citta, int anno) {
-		grafo = new SimpleDirectedWeightedGraph<>(DefaultWeightedEdge.class);
+	public String creaGrafo(String city, Year anno) {
+		this.grafo = new SimpleDirectedWeightedGraph<Business, DefaultWeightedEdge>(DefaultWeightedEdge.class) ;
+		YelpDao dao = new YelpDao() ;
+		this.vertici = dao.getBusinessByCityAndYear(city, anno) ;
+		this.verticiIdMap = new HashMap<>() ;
+		for(Business b : this.vertici)
+			this.verticiIdMap.put(b.getBusinessId(), b) ;
 		
-		// Aggiunta dei vertici
-		Graphs.addAllVertices(this.grafo, this.dao.getAllBusinessWithCityAndYear(citta, anno));
+		Graphs.addAllVertices(this.grafo, this.vertici) ;
 		
-		
-		for (Business b : this.grafo.vertexSet()) {
-			double media = this.dao.calcolaMediaRecensioniWithLocaleAndAnno(b, anno);
-			mediaLocale.put(b, media);
-		}
-		
-		// Aggiunta degli archi 
-		for (Business b1 : this.grafo.vertexSet()) {
-			for (Business b2 : this.grafo.vertexSet()) {
-				if ((mediaLocale.get(b1) - mediaLocale.get(b2)) == 0) {
-					// non faccio nulla
-				}
-				if ((mediaLocale.get(b1) - mediaLocale.get(b2)) > 0) {
-					Graphs.addEdge(this.grafo, b2, b1, (mediaLocale.get(b1) - mediaLocale.get(b2)));
-				} else if ((mediaLocale.get(b1) - mediaLocale.get(b2)) < 0) {
-					Graphs.addEdge(this.grafo, b1, b2, (mediaLocale.get(b2) - mediaLocale.get(b1)));
+		/*
+		// IPOTESI "Giuseppe": calcolare la media recensioni mentre leggo i Business
+		for(Business b1: this.vertici) {
+			for(Business b2: this.vertici) {
+				if(b1.getMediaRecensioni() < b2.getMediaRecensioni()) {
+					Graphs.addEdge(this.grafo, b1, b2, b2.getMediaRecensioni()-b1.getMediaRecensioni()) ;
 				}
 			}
 		}
-	}
-	
-	public Business calcolaLocaleMigliore() {
-		Business localeMigliore = null;
+		*/
 		
-		double max = 0.0;
-		
-		for (Business b : this.grafo.vertexSet()) {
-			
-			double sommaEntranti = 0.0;
-			for (DefaultWeightedEdge e : this.grafo.incomingEdgesOf(b)) {
-				sommaEntranti += this.grafo.getEdgeWeight(e);
-			}
-			
-			double sommaUscenti = 0.0;
-			for (DefaultWeightedEdge e : this.grafo.outgoingEdgesOf(b)) {
-				sommaUscenti += this.grafo.getEdgeWeight(e);
-			}
-			// System.out.println("Business " + b + " (" + (sommaEntranti - sommaUscenti) +")\n");
-			if ((sommaEntranti - sommaUscenti) > max) {
-				max = sommaEntranti - sommaUscenti;
-				localeMigliore = b;
+		/*
+		// IPOTESI "Giuseppe + Mappa": non modifico oggetto Business, ma creo
+		// una mappa per ricordarmi le medie delle recensioni
+		Map<Business, Double> medieRecensioni = new HashMap<>() ;
+		// carica la mappa con il DAO
+		for(Business b1: this.vertici) {
+			for(Business b2: this.vertici) {
+				if(medieRecensioni.get(b1) < medieRecensioni.get(b2)) {
+					Graphs.addEdge(this.grafo, b1, b2, medieRecensioni.get(b2)-medieRecensioni.get(b1)) ;
+				}
 			}
 		}
-	
-		return localeMigliore;
+		*/
+		
+		// IPOTESI 3 : faccio calcolare gli archi al DB
+		List<ArcoGrafo> archi = dao.calcolaArchi(city, anno) ;
+		for(ArcoGrafo arco : archi) {
+			Graphs.addEdge(this.grafo,
+					this.verticiIdMap.get(arco.getBusinessId1()),
+					this.verticiIdMap.get(arco.getBusinessId2()), 
+					arco.getPeso()) ;
+		}
+		
+		
+
+		
+		return String.format("Grafo creato con %d vertici e %d archi\n",
+				this.grafo.vertexSet().size(),
+				this.grafo.edgeSet().size()) ;
 	}
 	
-	// Metodo che prepara la ricorsione
-	public List<Business> calcolaPercorsoMigliore(Business partenza, Business arrivo, double soglia){
-		this.percorsoBest = null;
+	public Business getLocaleMigliore() {
+		double max = 0.0 ;
+		Business result = null ;
 		
-		List<Business> parziale = new ArrayList<Business>(); // questa è la lista che andremo a costruire man mano
-		parziale.add(partenza); // aggiungo il locale di partenza perchè rappresenta il punto da cui ha inizio la ricorsione
-		
-		// Adesso possiamo far partire la ricorsione
-		cerca(parziale, 1, arrivo, soglia);
-		
-		return this.percorsoBest;
-	}
-	
-	// ALGORITMO VERAMENTE RICORSIVO
-	public void cerca(List<Business> parziale, int livello, Business arrivo, double soglia) {
-		Business ultimo = parziale.get(parziale.size()-1);
-		// condizione di terminazione (ho trovato il locale di destinazione)
-		if (ultimo.equals(arrivo)) {
+		for(Business b: this.grafo.vertexSet()) {
+			double val = 0.0 ;
+			for(DefaultWeightedEdge e: this.grafo.incomingEdgesOf(b))
+				val += this.grafo.getEdgeWeight(e) ;
+			for(DefaultWeightedEdge e: this.grafo.outgoingEdgesOf(b))
+				val -= this.grafo.getEdgeWeight(e) ;
 			
-			if(this.percorsoBest == null) {
-				this.percorsoBest = new LinkedList<>(parziale);
-				return;
-			} else if (parziale.size() < this.percorsoBest.size()) {
-				this.percorsoBest = new LinkedList<>(parziale);
-				return;
+			if(val>max) {
+				max = val ;
+				result = b ;
+			}
+		}
+		return result; 
+	}
+	
+	public List<Business> percorsoMigliore(Business partenza, Business arrivo, double soglia) {
+		this.percorsoBest = null ;
+		
+		List<Business> parziale = new ArrayList<Business>() ;
+		parziale.add(partenza) ;
+		
+		cerca(parziale, 1, arrivo, soglia) ;
+		
+		return this.percorsoBest ;
+	}
+	
+	private void cerca(List<Business> parziale, int livello, Business arrivo, double soglia) {
+		
+		Business ultimo = parziale.get(parziale.size()-1) ;
+		
+		// caso terminale: ho trovato l'arrivo
+		if(ultimo.equals(arrivo)) {
+			if(this.percorsoBest==null) {
+				this.percorsoBest = new ArrayList<>(parziale) ;
+				return ;
+			} else if( parziale.size() < this.percorsoBest.size() ) {
+				// NOTA: per calcolare i percorsi più lunghi, basta
+				// mettere > nell'istuzione precedente
+				this.percorsoBest = new ArrayList<>(parziale) ;
+				return ;
 			} else {
-				// in questo caso la dimensione di parziale è maggiore o uguale della dimensione della soluzione migliore corrente
-				// e quindi NON facciamo nulla
-				return;
+				return ;
 			}
-			
 		}
 		
-		// generazione dei vari percorsi cercando di aggiungere i vertici successori 
-		// dell'ultimo vertice inserito : cioè cerco di uscire dall'ultimo vertice spostandomi
-		// verso uno dei vertici ad esso collegati attraversando degli archi uscenti il cui
-		// peso è maggiore della soglia prefissata
-		
-		for (DefaultWeightedEdge e : this.grafo.outgoingEdgesOf(ultimo)) {
-			if (this.grafo.getEdgeWeight(e) > soglia) {
-				Business prossimo = Graphs.getOppositeVertex(this.grafo, e, ultimo);
-				if (!parziale.contains(prossimo)) {
+		// generazione dei percorsi
+		// cerca i successori di 'ultimo'
+		for(DefaultWeightedEdge e: this.grafo.outgoingEdgesOf(ultimo)) {
+			if(this.grafo.getEdgeWeight(e)>soglia) {
+				// vai
+				
+				Business prossimo = Graphs.getOppositeVertex(this.grafo, e, ultimo) ;
+				
+				if(!parziale.contains(prossimo)) { // evita i cicli
 					parziale.add(prossimo);
-					cerca(parziale, livello+1, arrivo, soglia);
-					parziale.remove(parziale.size()-1);
+					cerca(parziale, livello + 1, arrivo, soglia);
+					parziale.remove(parziale.size()-1) ;
 				}
-						
 			}
-		}
-		
+		}	
 	}
 	
-	public Set<Business> getAllVertici(){
-		return this.grafo.vertexSet();
+	public List<Business> getVertici() {
+		return this.vertici ;
 	}
 	
-	public List<String> getAllCitta(){
-		return this.dao.getAllCitta();
-	}
-	
-	public int getNumVertici() {
-		return this.grafo.vertexSet().size();
-	}
-	
-	public int getNumArchi() {
-		return this.grafo.edgeSet().size();
-	}
 }

@@ -5,8 +5,7 @@
 package it.polito.tdp.yelp;
 
 import java.net.URL;
-import java.util.Collections;
-import java.util.LinkedList;
+import java.time.Year;
 import java.util.List;
 import java.util.ResourceBundle;
 
@@ -45,7 +44,7 @@ public class FXMLController {
     private TextField txtX; // Value injected by FXMLLoader
 
     @FXML // fx:id="cmbAnno"
-    private ComboBox<Integer> cmbAnno; // Value injected by FXMLLoader
+    private ComboBox<Year> cmbAnno; // Value injected by FXMLLoader
 
     @FXML // fx:id="cmbLocale"
     private ComboBox<Business> cmbLocale; // Value injected by FXMLLoader
@@ -55,70 +54,61 @@ public class FXMLController {
 
     @FXML
     void doCalcolaPercorso(ActionEvent event) {
-    	Business partenza = cmbLocale.getValue();
-    	if (partenza == null) {
-    		txtResult.appendText("Per favore selezionare un locale!\n");
-    		return;
-    	}
-    	
-    	double soglia = -1;
+    	Business partenza = cmbLocale.getValue() ;
+    	Business arrivo = model.getLocaleMigliore() ;
+    	double soglia = -1 ;
     	try {
-    		soglia = Double.parseDouble(txtX.getText());
-    		if (soglia < 0.0 || soglia > 1.0) {
-    			txtResult.appendText("Inserire come soglia un numero compreso tra 0 e 1!\n");
-    			return;
-    		}
-    	} catch (NumberFormatException e) {
-    		txtResult.appendText("Inserire come soglia un numero compreso tra 0 e 1!\n");
-    		return;
+    		soglia = Double.parseDouble(txtX.getText()) ;
+    	} catch(NumberFormatException ex) {
+    		txtResult.appendText("ERRORE: Il campo soglia deve essere numerico\n");
+    		return ;
     	}
     	
-    	// se sono arrivato qui possiamo calcolare il percorso migliore tra 'partenza' e 'arrivo'
-    	Business arrivo = this.model.calcolaLocaleMigliore();
+    	if(partenza==null) {
+    		txtResult.appendText("ERRORE: Devi selezionare un locale\n");
+    		return ;
+    	}
     	
-    	List<Business> percorsoMigliore = this.model.calcolaPercorsoMigliore(partenza, arrivo, soglia);
+    	if(soglia<0.0 || soglia>1.0) {
+    		txtResult.appendText("ERRORE: Il campo soglia deve compreso tra 0 e 1\n");
+    		return ;
+
+    	}
     	
-    	if (percorsoMigliore == null) {
+    	List<Business> percorso = model.percorsoMigliore(partenza, arrivo, soglia) ;
+
+    	if(percorso==null) {
     		txtResult.appendText("Non esiste un percorso\n");
     	} else {
-    		txtResult.appendText("Il percorso migliore per arrivare dal locale '" + partenza + "' al locale '" + arrivo +"' è: \n\n");
-    		for (Business b : percorsoMigliore) {
-    			txtResult.appendText(b + "\n");
-    		}
+    		txtResult.appendText("Percorso migliore:\n"+percorso.toString()+"\n");
     	}
+    	
     	
     }
 
     @FXML
     void doCreaGrafo(ActionEvent event) {
-    	txtResult.clear();
+    	String city = cmbCitta.getValue() ;
+    	Year anno = cmbAnno.getValue() ;
+    	
+    	if(city==null || anno==null) {
+    		txtResult.appendText("Parametri obbligatori");
+    		return ;
+    	}
+    	
+    	String msg = model.creaGrafo(city, anno) ;
+    	txtResult.appendText(msg);
     	cmbLocale.getItems().clear();
-    	String citta = cmbCitta.getValue();
-    	if (citta == null) {
-    		txtResult.setText("Per favore selezionare una citta!\n");
-    		return;
-    	}
-    	Integer anno = cmbAnno.getValue();
-    	if (anno == null) {
-    		txtResult.setText("Per favore selezionare un anno!\n");
-    		return;
-    	}
-    	this.model.creaGrafo(citta, anno);
-    	
-    	txtResult.setText("Grafo creato!\n");
-    	txtResult.appendText("# Vertici: " + this.model.getNumVertici() + "\n");
-    	txtResult.appendText("# Archi: " + this.model.getNumArchi() + "\n");
-    	
-    	List<Business> locali = new LinkedList<>(this.model.getAllVertici());
-    	Collections.sort(locali);
-    	cmbLocale.getItems().addAll(locali);
+    	cmbLocale.getItems().addAll(model.getVertici()) ;
     }
 
     @FXML
     void doLocaleMigliore(ActionEvent event) {
-    	txtResult.clear();
-    	Business localeMigliore = this.model.calcolaLocaleMigliore();
-    	txtResult.appendText("LOCALE MIGLIORE: " + localeMigliore + "\n");
+    	
+    	Business best = model.getLocaleMigliore() ;
+    	
+    	txtResult.appendText("Locale migliore: "+best.getBusinessName()+"\n");
+
     }
 
     @FXML // This method is called by the FXMLLoader when initialization is complete
@@ -135,11 +125,11 @@ public class FXMLController {
     
     public void setModel(Model model) {
     	this.model = model;
-    	List<String> citta = this.model.getAllCitta();
-    	Collections.sort(citta);
-    	cmbCitta.getItems().addAll(citta);
-    	for(int anno = 2005; anno <= 2013; anno++) {
-    		cmbAnno.getItems().add(anno);
+    	
+    	cmbCitta.getItems().addAll(model.getAllCities()) ;
+    	
+    	for(int anno=2005; anno<=2013; anno++) {
+    		cmbAnno.getItems().add(Year.of(anno)) ;
     	}
     }
 }
